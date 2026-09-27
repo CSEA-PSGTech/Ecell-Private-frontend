@@ -1,0 +1,45 @@
+.landing-page {
+  width: min(1120px, calc(100% - 48px));
+  min-height: 100vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-nav,
+.landing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28px 0;
+}
+
+.brand,
+.nav-link,
+.primary-action { color: inherit; text-decoration: none; }
+.brand { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-link { color: #667085; font-size: 0.9rem; }
+.hero { padding: clamp(88px, 15vh, 160px) 0 120px; max-width: 760px; }
+.eyebrow,
+.card-number { color: #e76f51; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.hero h1 { max-width: 700px; margin: 18px 0; font-size: clamp(3.5rem, 8vw, 7rem); line-height: 0.95; letter-spacing: -0.06em; }
+.hero-copy { max-width: 570px; color: #667085; font-size: 1.15rem; line-height: 1.7; }
+.primary-action { display: inline-block; margin-top: 34px; padding: 14px 20px; border-radius: 999px; background: #19324d; color: #fff; font-weight: 700; transition: transform 180ms ease, background 180ms ease; }
+.primary-action:hover { background: #e76f51; transform: translateY(-2px); }
+.starter-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #d9dee5; }
+.starter-grid article { padding: 30px 28px 30px 0; border-right: 1px solid #d9dee5; }
+.starter-grid article + article { padding-left: 28px; }
+.starter-grid article:last-child { border-right: 0; }
+.starter-grid h2 { margin: 22px 0 8px; font-size: 1.6rem; }
+.starter-grid p { color: #667085; line-height: 1.6; }
+.landing-footer { margin-top: auto; padding-top: 80px; color: #98a2b3; font-size: 0.8rem; }
+
+@media (max-width: 700px) {
+  .landing-page { width: min(100% - 32px, 560px); }
+  .hero { padding: 96px 0 88px; }
+  .hero h1 { font-size: clamp(3.5rem, 17vw, 5.5rem); }
+  .starter-grid { grid-template-columns: 1fr; }
+  .starter-grid article,
+  .starter-grid article + article { padding: 24px 0; border-right: 0; border-bottom: 1px solid #d9dee5; }
+  .starter-grid article:last-child { border-bottom: 0; }
+}
