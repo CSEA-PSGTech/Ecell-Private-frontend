@@ -1,3 +1,5 @@
+@import './variables.css';
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -10,20 +12,97 @@ html, body, #root {
 }
 
 body {
-  font-family: Georgia, 'Times New Roman', serif;
-  background: #f6f4ef;
-  color: #19324d;
+  font-family: var(--font-sans);
+  background: var(--bg-app);
+  color: var(--text-main);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+/* Typography basics */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-main);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+p {
+  color: var(--text-secondary);
 }
 
 a {
-  color: inherit;
+  color: var(--brand-primary);
   text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
 
 button {
   font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
   cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-main);
+}
+
+/* Clean Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Standard utilities */
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center { display: flex; align-items: center; }
+.justify-between { display: flex; justify-content: space-between; }
+.gap-1 { gap: 0.25rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+.gap-4 { gap: 1rem; }
+.gap-6 { gap: 1.5rem; }
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 180ms ease forwards;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 800ms linear infinite;
 }

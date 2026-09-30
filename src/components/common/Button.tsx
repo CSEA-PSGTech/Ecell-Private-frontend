@@ -2,7 +2,7 @@ import React from 'react';
 import './Button.css';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'danger-outline' | 'success';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
   icon?: React.ReactNode;
@@ -28,7 +28,7 @@ export const Button: React.FC<ButtonProps> = ({
         <span className="btn-spinner" aria-label="Loading" />
       ) : (
         <>
-          {icon && <span className="btn-icon">{icon}</span>}
+          {icon && <span className="btn-icon" style={{ display: 'inline-flex' }}>{icon}</span>}
           {children}
         </>
       )}

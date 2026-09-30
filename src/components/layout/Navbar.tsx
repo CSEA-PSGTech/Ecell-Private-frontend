@@ -26,7 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, onNavigate }) => {
 
         {/* Navigation Links */}
         <nav className="navbar-nav">
-          {NAV_LINKS.map((link) => (
+          {NAV_LINKS.map((link: { label: string; path: string; badge?: string | number }) => (
             <button
               key={link.path}
               className={`nav-link ${currentPath === link.path ? 'active' : ''}`}
