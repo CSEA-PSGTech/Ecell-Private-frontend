@@ -28,18 +28,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const isRepresentative = userRole === 'REPRESENTATIVE';
   const isMember = userRole === 'MEMBER';
 
-  // Permission rule per spec:
-  // - Representative can edit/delete and change any status
-  // - Member can only mark THEIR OWN assigned tasks complete/incomplete
+  // Members and representatives may complete only tasks assigned to themselves.
+  // Representatives can still manage task details for the whole project.
   // - Owner is strictly non-interactive
-  const canToggleStatus = isRepresentative || (isMember && isAssignedToMe);
+  const canToggleStatus = isAssignedToMe && (isRepresentative || isMember);
   const canManageTask = isRepresentative;
 
   const handleToggleCompleted = () => {
     if (!canToggleStatus) return;
-    if (task.status === 'Completed') {
-      onStatusChange(task.id, 'In progress');
-    } else {
+    if (task.status !== 'Completed') {
       onStatusChange(task.id, 'Completed');
     }
   };
@@ -178,7 +175,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
         <button
           onClick={handleToggleCompleted}
-          disabled={!canToggleStatus}
+          disabled={!canToggleStatus || task.status === 'Completed'}
           style={{
             marginTop: '2px',
             color:
@@ -187,14 +184,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 : canToggleStatus
                 ? 'var(--text-muted)'
                 : 'var(--border-strong)',
-            cursor: canToggleStatus ? 'pointer' : 'default',
+            cursor: canToggleStatus && task.status !== 'Completed' ? 'pointer' : 'default',
             display: 'flex',
             alignItems: 'center',
           }}
           title={
             canToggleStatus
               ? task.status === 'Completed'
-                ? 'Mark incomplete'
+                ? 'Completed'
                 : 'Mark completed'
               : 'Read-only: can only change tasks assigned to you'
           }

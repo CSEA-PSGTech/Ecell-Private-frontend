@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
+import { SignupPage } from '@/pages/SignupPage';
 import { DiscoverProjectsPage } from '@/pages/DiscoverProjectsPage';
 import { ApplicationsPage } from '@/pages/ApplicationsPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
@@ -48,11 +49,20 @@ export const AppRoutes: React.FC = () => {
 
   // Auth Guard
   if (!isAuthenticated) {
+    if (currentPath === '/signup') {
+      return (
+        <SignupPage
+          onSuccess={() => navigate('/discover')}
+          onGoToLogin={() => navigate('/login')}
+        />
+      );
+    }
     return (
       <LoginPage
         onSuccess={(role) => {
           navigate(role === 'admin' ? '/admin' : '/discover');
         }}
+        onGoToSignup={() => navigate('/signup')}
       />
     );
   }

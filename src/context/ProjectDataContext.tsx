@@ -17,9 +17,11 @@ import {
   membershipService,
   taskService,
   analyticsService,
-  resetMockDataToSeed,
 } from '@/services/api';
+import type { ProjectAssignment } from '@/services/api';
 import { calculateCompletionPercentage } from '@/utils/formatters';
+import { STORAGE_KEYS } from '@/utils/constants';
+import { useAuth } from '@/context/AuthContext';
 
 interface ProjectDataContextType {
   projects: Project[];
@@ -32,12 +34,12 @@ interface ProjectDataContextType {
   resetToDefault: () => Promise<void>;
 
   // Project actions
-  createProject: (data: Omit<Project, 'id' | 'createdAt'>) => Promise<Project>;
+  createProject: (data: Omit<Project, 'id' | 'createdAt'> & { assignments?: ProjectAssignment[] }) => Promise<Project>;
   updateProjectStatus: (id: string, status: ProjectStatus) => Promise<Project>;
 
   // Application actions
   applyToProject: (projectId: string, student: User, statement?: string, portfolioUrl?: string) => Promise<Application>;
-  updateApplicationStatus: (id: string, status: 'Accepted' | 'Rejected', reviewerName?: string) => Promise<void>;
+  updateApplicationStatus: (id: string, status: 'Accepted' | 'Rejected') => Promise<void>;
 
   // Task actions
   createTask: (projectId: string, data: { title: string; description?: string; priority: TaskPriority; assigneeId: string; dueDate?: string }) => Promise<Task>;
@@ -59,6 +61,7 @@ interface ProjectDataContextType {
 const ProjectDataContext = createContext<ProjectDataContextType | undefined>(undefined);
 
 export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [memberships, setMemberships] = useState<ProjectMembership[]>([]);
@@ -69,15 +72,23 @@ export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const refreshData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [allProjects, allApps, , allAnalytics] = await Promise.all([
-        projectService.getAllProjects(),
-        applicationService.getAdminApplications('ALL'),
-        membershipService.getProjectMembers('all-internal-cache'),
-        analyticsService.getOverview(),
-      ]);
+      const currentUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH_USER) || 'null') as User | null;
+      const isAdmin = currentUser?.role === 'admin';
+      const enrolledProjects = await projectService.getAllProjects();
+      const discoverProjects = isAdmin ? [] : await projectService.getDiscoverProjects();
+      const projectsById = new Map(
+        [...enrolledProjects, ...discoverProjects].map((project) => [project.id, project]),
+      );
+      const allProjects = Array.from(projectsById.values());
+      const allApps = isAdmin
+        ? await applicationService.getAdminApplications('ALL')
+        : currentUser
+          ? await applicationService.getMyApplications(currentUser.id)
+          : [];
+      const allAnalytics = isAdmin ? await analyticsService.getOverview() : null;
 
-      // Also gather all tasks across projects
-      const taskPromises = allProjects.map((p) => taskService.getProjectTasks(p.id));
+      // Workspace details are available only for projects the student belongs to.
+      const taskPromises = enrolledProjects.map((p) => taskService.getProjectTasks(p.id).catch(() => []));
       const nestedTasks = await Promise.all(taskPromises);
       const flatTasks = nestedTasks.flat();
 
@@ -87,7 +98,7 @@ export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setAnalytics(allAnalytics);
 
       // Fetch all memberships
-      const memberPromises = allProjects.map((p) => membershipService.getProjectMembers(p.id));
+      const memberPromises = enrolledProjects.map((p) => membershipService.getProjectMembers(p.id).catch(() => []));
       const nestedMembers = await Promise.all(memberPromises);
       setMemberships(nestedMembers.flat());
     } catch (err) {
@@ -99,14 +110,13 @@ export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   useEffect(() => {
     refreshData();
-  }, [refreshData]);
+  }, [refreshData, user?.id, user?.role]);
 
   const resetToDefault = async () => {
-    resetMockDataToSeed();
-    await refreshData();
+    throw new Error('Resetting seed data is unavailable when using the backend API.');
   };
 
-  const createProject = async (data: Omit<Project, 'id' | 'createdAt'>): Promise<Project> => {
+  const createProject = async (data: Omit<Project, 'id' | 'createdAt'> & { assignments?: ProjectAssignment[] }): Promise<Project> => {
     const created = await projectService.createProject(data);
     await refreshData();
     return created;
@@ -124,8 +134,10 @@ export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return app;
   };
 
-  const updateApplicationStatus = async (id: string, status: 'Accepted' | 'Rejected', reviewerName?: string): Promise<void> => {
-    await applicationService.patchApplicationStatus(id, status, reviewerName);
+  const updateApplicationStatus = async (id: string, status: 'Accepted' | 'Rejected'): Promise<void> => {
+    const application = applications.find((item) => item.id === id);
+    if (!application?.projectId) throw new Error('Application is missing its project ID.');
+    await applicationService.patchApplicationStatus(id, application.projectId, status);
     await refreshData();
   };
 

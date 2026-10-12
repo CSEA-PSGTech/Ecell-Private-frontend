@@ -1,398 +1,402 @@
 import type {
-  User,
+  AnalyticsOverview,
+  Application,
   Project,
   ProjectMembership,
-  Application,
-  Task,
-  AnalyticsOverview,
   ProjectRole,
+  Task,
   TaskPriority,
+  User,
 } from '@/types';
 import { STORAGE_KEYS } from '@/utils/constants';
-import {
-  SEED_USERS,
-  SEED_PROJECTS,
-  SEED_MEMBERSHIPS,
-  SEED_APPLICATIONS,
-  SEED_TASKS,
-} from '@/utils/seedData';
-import { isDeadlinePassed } from '@/utils/formatters';
 
-// Initialize mock storage from seeds if not yet populated
-function initializeLocalStorage() {
-  if (!localStorage.getItem(STORAGE_KEYS.PROJECTS)) {
-    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.MEMBERSHIPS)) {
-    localStorage.setItem(STORAGE_KEYS.MEMBERSHIPS, JSON.stringify(SEED_MEMBERSHIPS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.APPLICATIONS)) {
-    localStorage.setItem(STORAGE_KEYS.APPLICATIONS, JSON.stringify(SEED_APPLICATIONS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.TASKS)) {
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/$/, '');
+
+interface BackendResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: { code?: string; message?: string };
+}
+
+class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
   }
 }
 
-initializeLocalStorage();
+async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
 
-// Helper readers and writers
-function getStored<T>(key: string, fallback: T): T {
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const payload = (await response.json().catch(() => ({}))) as BackendResponse<T>;
+
+  if (response.status === 401 && retry && localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return request<T>(path, init, false);
+  }
+
+  if (!response.ok || !payload.success || payload.data === undefined) {
+    throw new ApiError(
+      payload.error?.message || `Request failed with status ${response.status}`,
+      response.status,
+      payload.error?.code,
+    );
+  }
+  return payload.data;
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  if (!refreshToken) return false;
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    const result = await request<{ accessToken: string }>(
+      '/auth/refresh',
+      { method: 'POST', body: JSON.stringify({ refreshToken }) },
+      false,
+    );
+    localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, result.accessToken);
+    return true;
   } catch {
-    return fallback;
+    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+    return false;
   }
 }
 
-function setStored<T>(key: string, value: T): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    console.error(`Failed to store key: ${key}`, e);
-  }
+function mapUser(user: User): User {
+  return { ...user, department: user.department || '', rollNumber: user.rollNumber || undefined };
 }
 
-// -------------------------------------------------------------
-// AUTH SERVICE
-// -------------------------------------------------------------
+export interface AdminStudent {
+  id: string;
+  name: string;
+  email: string;
+  accountType: 'student' | 'company';
+  rollNumber: string;
+  department: string;
+}
+
+export interface ProjectAssignment {
+  id: string;
+  email: string;
+  role: 'OWNER' | 'REPRESENTATIVE';
+}
+
+function mapProject(raw: Record<string, unknown>): Project {
+  const id = String(raw.id);
+  const deadline = String(raw.deadlineAt || new Date(8640000000000000).toISOString());
+  return {
+    id,
+    code: String(raw.code || id.slice(-6)),
+    title: String(raw.title || raw.name || 'Untitled project'),
+    description: String(raw.description || ''),
+    departments: Array.isArray(raw.departments)
+      ? raw.departments.map(String)
+      : Array.isArray(raw.targetDepartments) ? raw.targetDepartments.map(String) : [],
+    status: raw.status as Project['status'],
+    deadline,
+    mentorName: String(raw.mentorName || ''),
+    facultyName: String(raw.facultyName || raw.mentorName || ''),
+    prerequisites: Array.isArray(raw.prerequisites) ? raw.prerequisites.map(String) : [],
+    guidelines: Array.isArray(raw.guidelines) ? raw.guidelines.map(String) : [],
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    fullDescription: raw.fullDescription ? String(raw.fullDescription) : undefined,
+  };
+}
+
+function mapTask(raw: Record<string, unknown>, projectId: string): Task {
+  const status = raw.status === 'COMPLETED'
+    ? 'Completed'
+    : raw.status === 'IN_PROGRESS'
+      ? 'In progress'
+      : 'To do';
+  const assignedTo = raw.assignedTo;
+  const assigneeId = typeof assignedTo === 'object' && assignedTo
+    ? String((assignedTo as Record<string, unknown>).id)
+    : String(raw.assignedToId || '');
+  const assigneeName = typeof assignedTo === 'object' && assignedTo
+    ? String((assignedTo as Record<string, unknown>).name || '')
+    : String(assignedTo || '');
+  return {
+    id: String(raw.id),
+    projectId,
+    title: String(raw.title || ''),
+    description: String(raw.description || ''),
+    status,
+    priority: (raw.priority as TaskPriority) || 'Medium',
+    assigneeId,
+    assigneeName,
+    dueDate: raw.dueAt ? String(raw.dueAt) : undefined,
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    updatedAt: String(raw.updatedAt || new Date().toISOString()),
+  };
+}
+
+function mapApplication(raw: Record<string, unknown>, project?: Project): Application {
+  const user = (raw.user || {}) as Record<string, unknown>;
+  const rawStatus = String(raw.status || '').toUpperCase();
+  return {
+    id: String(raw.id),
+    projectId: String(raw.projectId || ''),
+    studentId: String(raw.studentId || user.id || ''),
+    studentName: String(raw.studentName || user.name || ''),
+    studentEmail: String(raw.studentEmail || user.email || ''),
+    studentDepartment: String(raw.studentDepartment || user.department || ''),
+    projectTitle: project?.title || String(raw.projectTitle || ''),
+    projectCode: project?.code || String(raw.projectCode || ''),
+    statement: raw.message ? String(raw.message) : undefined,
+    submittedDate: String(raw.submittedDate || new Date().toISOString()),
+    status: rawStatus === 'APPROVED' ? 'Accepted' : rawStatus === 'REJECTED' ? 'Rejected' : 'Under Review',
+  };
+}
+
 export const authService = {
-  async login(email: string, _password?: string): Promise<{ accessToken: string; refreshToken: string; user: User }> {
-    await new Promise((r) => setTimeout(r, 200)); // slight natural delay
-    const targetUser = SEED_USERS.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!targetUser) {
-      // If not exact email, fallback to student or admin based on keyword or default to Alex
-      if (email.includes('admin')) {
-        const adminUser = SEED_USERS.find((u) => u.role === 'admin')!;
-        return {
-          accessToken: 'mock-access-token-admin',
-          refreshToken: 'mock-refresh-token-admin',
-          user: adminUser,
-        };
-      }
-      throw new Error('Invalid email or password');
-    }
+  async login(email: string, password?: string): Promise<{ accessToken: string; refreshToken: string; user: User }> {
+    const result = await request<{ accessToken: string; refreshToken: string; user: User }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify({ email: email.trim(), password: password || '' }) },
+      false,
+    );
+    return { ...result, user: mapUser(result.user) };
+  },
 
-    return {
-      accessToken: `mock-access-token-${targetUser.id}`,
-      refreshToken: `mock-refresh-token-${targetUser.id}`,
-      user: targetUser,
-    };
+  async signup(name: string, email: string, password: string, department?: string, accountType: 'student' | 'company' = 'student'): Promise<{ accessToken: string; refreshToken: string; user: User }> {
+    const result = await request<{ accessToken: string; refreshToken: string; user: User }>(
+      '/auth/signup',
+      { method: 'POST', body: JSON.stringify({ name: name.trim(), email: email.trim(), password, accountType, department: department?.trim() || undefined }) },
+      false,
+    );
+    return { ...result, user: mapUser(result.user) };
   },
 
   async refresh(): Promise<{ accessToken: string }> {
-    return { accessToken: `mock-refreshed-token-${Date.now()}` };
+    const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    if (!refreshToken) throw new Error('No refresh token available');
+    return request('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) }, false);
   },
 
   async logout(): Promise<void> {
-    localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    try {
+      await request('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken: localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN) }) });
+    } finally {
+      localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+      localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    }
   },
 };
 
-// -------------------------------------------------------------
-// PROJECTS SERVICE
-// -------------------------------------------------------------
 export const projectService = {
+  async searchStudents(search: string): Promise<AdminStudent[]> {
+    const result = await request<{ students: AdminStudent[] }>(
+      `/admin/students?q=${encodeURIComponent(search.trim())}`,
+    );
+    return result.students;
+  },
   async getDiscoverProjects(): Promise<Project[]> {
-    await new Promise((r) => setTimeout(r, 150));
-    const all = getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
-
-    // Show ALL open, non-expired projects to every user regardless of department
-    return all.filter((proj) => {
-      if (proj.status !== 'OPEN') return false;
-      if (isDeadlinePassed(proj.deadline)) return false;
-      return true;
-    });
+    const result = await request<{ projects: Record<string, unknown>[] }>('/student/projects/browse');
+    return result.projects.map(mapProject);
   },
 
   async getAllProjects(): Promise<Project[]> {
-    await new Promise((r) => setTimeout(r, 150));
-    return getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
+    const user = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH_USER) || 'null') as User | null;
+    if (user?.role === 'admin') {
+      const result = await request<{ projects: Record<string, unknown>[] }>('/admin/projects?limit=100');
+      return result.projects.map(mapProject);
+    }
+    const dashboard = await request<{ projects: Record<string, unknown>[] }>('/student');
+    return dashboard.projects.map(mapProject);
   },
 
   async getProjectById(id: string): Promise<Project | null> {
-    const all = getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
-    return all.find((p) => p.id === id) || null;
+    try {
+      const user = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH_USER) || 'null') as User | null;
+      const path = user?.role === 'admin' ? `/admin/projects/${id}` : `/student/projects/${id}`;
+      return mapProject(await request<Record<string, unknown>>(path));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
   },
 
-  async createProject(projectData: Omit<Project, 'id' | 'createdAt'>): Promise<Project> {
-    const all = getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
-    const newProject: Project = {
-      ...projectData,
-      id: `proj-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newProject, ...all];
-    setStored(STORAGE_KEYS.PROJECTS, updated);
-    return newProject;
+  async createProject(projectData: Omit<Project, 'id' | 'createdAt'> & { assignments?: ProjectAssignment[] }): Promise<Project> {
+    const result = await request<Record<string, unknown>>('/admin/projects/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: projectData.title,
+        code: projectData.code,
+        description: projectData.description,
+        fullDescription: projectData.fullDescription || projectData.description,
+        status: projectData.status,
+        deadlineAt: projectData.deadline,
+        targetDepartments: projectData.departments,
+        mentorName: projectData.mentorName,
+        facultyName: projectData.mentorName,
+        prerequisites: projectData.prerequisites,
+        guidelines: projectData.guidelines,
+        representative: projectData.assignments?.map((assignment) => ({
+          email: assignment.email,
+          role: assignment.role,
+        })),
+      }),
+    });
+    return mapProject(result);
+  },
+
+  async assignMember(projectId: string, userId: string, role: 'OWNER' | 'REPRESENTATIVE'): Promise<void> {
+    await request(`/admin/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, role }),
+    });
   },
 
   async patchProject(id: string, updates: Partial<Project>): Promise<Project> {
-    const all = getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
-    const index = all.findIndex((p) => p.id === id);
-    if (index === -1) throw new Error('Project not found');
-    const updatedProject = { ...all[index], ...updates };
-    all[index] = updatedProject;
-    setStored(STORAGE_KEYS.PROJECTS, all);
-    return updatedProject;
+    return mapProject(await request<Record<string, unknown>>(`/admin/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...(updates.title ? { name: updates.title } : {}),
+        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.fullDescription !== undefined ? { fullDescription: updates.fullDescription } : {}),
+        ...(updates.mentorName !== undefined ? { mentorName: updates.mentorName, facultyName: updates.mentorName } : {}),
+        ...(updates.departments !== undefined ? { targetDepartments: updates.departments } : {}),
+        ...(updates.status ? { status: updates.status } : {}),
+        ...(updates.deadline ? { deadlineAt: updates.deadline } : {}),
+      }),
+    }));
   },
 };
 
-// -------------------------------------------------------------
-// APPLICATIONS SERVICE
-// -------------------------------------------------------------
 export const applicationService = {
-  async applyToProject(projectId: string, student: User, statement?: string, portfolioUrl?: string): Promise<Application> {
-    const all = getStored<Application[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    const project = await projectService.getProjectById(projectId);
-    if (!project) throw new Error('Project not found');
-
-    // Check if already applied
-    const existing = all.find((a) => a.projectId === projectId && a.studentId === student.id);
-    if (existing) {
-      throw new Error('You have already applied to this project');
-    }
-
-    const newApp: Application = {
-      id: `app-${Date.now()}`,
-      projectId,
-      studentId: student.id,
-      studentName: student.name,
-      studentEmail: student.email,
-      studentDepartment: student.department,
-      studentRollNumber: student.rollNumber,
-      projectTitle: project.title,
-      projectCode: project.code,
-      statement: statement || 'Eager to contribute technical skills to this innovation track.',
-      portfolioUrl: portfolioUrl || 'https://github.com',
-      submittedDate: new Date().toISOString(),
-      status: 'Under Review',
-    };
-
-    const updated = [newApp, ...all];
-    setStored(STORAGE_KEYS.APPLICATIONS, updated);
-    return newApp;
+  async applyToProject(projectId: string, _student: User, statement?: string, _portfolioUrl?: string): Promise<Application> {
+    const result = await request<Record<string, unknown>>(`/student/projects/${projectId}/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ message: statement || '' }),
+    });
+    return mapApplication(result);
   },
 
-  async getMyApplications(studentId: string): Promise<Application[]> {
-    await new Promise((r) => setTimeout(r, 120));
-    const all = getStored<Application[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    return all.filter((a) => a.studentId === studentId);
+  async getMyApplications(_studentId: string): Promise<Application[]> {
+    const result = await request<Record<string, unknown>>('/student/applications');
+    return (Array.isArray(result.applications) ? result.applications : [])
+      .map((item) => mapApplication(item as Record<string, unknown>));
   },
 
   async getAdminApplications(statusFilter?: 'PENDING' | 'REVIEWED' | 'ALL'): Promise<Application[]> {
-    await new Promise((r) => setTimeout(r, 150));
-    const all = getStored<Application[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    if (statusFilter === 'PENDING') {
-      return all.filter((a) => a.status === 'Under Review');
-    }
-    if (statusFilter === 'REVIEWED') {
-      return all.filter((a) => a.status === 'Accepted' || a.status === 'Rejected');
-    }
-    return all;
+    const result = await request<Record<string, unknown>>('/admin/applications');
+    const applications = (Array.isArray(result.applications) ? result.applications : [])
+      .map((item) => mapApplication(item as Record<string, unknown>));
+    if (statusFilter === 'PENDING') return applications.filter((app) => app.status === 'Under Review');
+    if (statusFilter === 'REVIEWED') return applications.filter((app) => app.status !== 'Under Review');
+    return applications;
   },
 
-  async patchApplicationStatus(id: string, status: 'Accepted' | 'Rejected', reviewerName = 'Dr. Aris Thorne'): Promise<Application> {
-    const all = getStored<Application[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    const index = all.findIndex((a) => a.id === id);
-    if (index === -1) throw new Error('Application not found');
-
-    const app = all[index];
-    const updatedApp: Application = {
-      ...app,
-      status,
-      reviewedAt: new Date().toISOString(),
-      reviewedBy: reviewerName,
-    };
-    all[index] = updatedApp;
-    setStored(STORAGE_KEYS.APPLICATIONS, all);
-
-    // CRITICAL: Accepting creates the ProjectMembership as MEMBER automatically in one step
-    if (status === 'Accepted') {
-      await membershipService.ensureMembership(app.projectId, app.studentId, 'MEMBER');
-    }
-
-    return updatedApp;
+  async patchApplicationStatus(id: string, projectId: string, status: 'Accepted' | 'Rejected'): Promise<Application> {
+    const result = await request<Record<string, unknown>>(`/admin/projects/${projectId}/applications/${id}`, {
+      method: 'POST',
+      body: JSON.stringify({ status: status === 'Accepted' ? 'APPROVED' : 'REJECTED' }),
+    });
+    return mapApplication(result);
   },
 };
 
-// -------------------------------------------------------------
-// MEMBERSHIPS & ROLES SERVICE
-// -------------------------------------------------------------
 export const membershipService = {
   async getProjectMembers(projectId: string): Promise<ProjectMembership[]> {
-    await new Promise((r) => setTimeout(r, 100));
-    const all = getStored<ProjectMembership[]>(STORAGE_KEYS.MEMBERSHIPS, SEED_MEMBERSHIPS);
-    const users = SEED_USERS;
-    return all
-      .filter((m) => m.projectId === projectId)
-      .map((m) => ({
-        ...m,
-        user: users.find((u) => u.id === m.userId) || m.user,
-      }));
+    const currentUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.AUTH_USER) || 'null') as User | null;
+    const path = currentUser?.role === 'admin'
+      ? `/admin/projects/${projectId}/members`
+      : `/student/projects/${projectId}`;
+    const detail = await request<Record<string, unknown>>(path);
+    const members = Array.isArray(detail.members) ? detail.members : [];
+    return members.map((member) => {
+      const raw = member as Record<string, unknown>;
+      const rawUser = (raw.user || raw) as Record<string, unknown>;
+      const user = {
+        id: String(rawUser.id || raw.userId),
+        name: String(rawUser.name || ''),
+        email: String(rawUser.email || ''),
+        role: 'student' as const,
+        department: String(rawUser.department || ''),
+        rollNumber: String(rawUser.rollNumber || ''),
+      };
+      return {
+        id: String(raw.id),
+        projectId,
+        userId: String(raw.userId || raw.id),
+        role: raw.role as ProjectRole,
+        joinedAt: new Date().toISOString(),
+        user,
+      };
+    });
   },
 
-  async getUserMemberships(userId: string): Promise<ProjectMembership[]> {
-    const all = getStored<ProjectMembership[]>(STORAGE_KEYS.MEMBERSHIPS, SEED_MEMBERSHIPS);
-    return all.filter((m) => m.userId === userId);
-  },
-
-  async ensureMembership(projectId: string, userId: string, role: ProjectRole = 'MEMBER'): Promise<ProjectMembership> {
-    const all = getStored<ProjectMembership[]>(STORAGE_KEYS.MEMBERSHIPS, SEED_MEMBERSHIPS);
-    const existingIndex = all.findIndex((m) => m.projectId === projectId && m.userId === userId);
-    const targetUser = SEED_USERS.find((u) => u.id === userId);
-
-    if (existingIndex >= 0) {
-      all[existingIndex].role = role;
-      setStored(STORAGE_KEYS.MEMBERSHIPS, all);
-      return all[existingIndex];
-    }
-
-    const newMembership: ProjectMembership = {
-      id: `mem-${Date.now()}`,
-      projectId,
-      userId,
-      role,
-      joinedAt: new Date().toISOString(),
-      user: targetUser,
-    };
-
-    all.push(newMembership);
-    setStored(STORAGE_KEYS.MEMBERSHIPS, all);
-    return newMembership;
+  async getUserMemberships(_userId: string): Promise<ProjectMembership[]> {
+    return [];
   },
 
   async patchMemberRole(projectId: string, userId: string, newRole: ProjectRole): Promise<ProjectMembership> {
-    return this.ensureMembership(projectId, userId, newRole);
+    if (newRole === 'MEMBER') {
+      throw new Error('The Roles page supports only Owner and Representative assignments.');
+    }
+    await projectService.assignMember(projectId, userId, newRole);
+    const members = await this.getProjectMembers(projectId);
+    const updated = members.find((member) => member.userId === userId);
+    if (!updated) throw new Error('Role assignment was not returned by the backend.');
+    return updated;
   },
 };
 
-// -------------------------------------------------------------
-// TASKS SERVICE
-// -------------------------------------------------------------
 export const taskService = {
   async getProjectTasks(projectId: string): Promise<Task[]> {
-    await new Promise((r) => setTimeout(r, 120));
-    const all = getStored<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
-    return all.filter((t) => t.projectId === projectId);
+    const detail = await request<Record<string, unknown>>(`/student/projects/${projectId}`);
+    return (Array.isArray(detail.tasks) ? detail.tasks : []).map((task) => mapTask(task as Record<string, unknown>, projectId));
   },
 
   async createTask(projectId: string, taskData: { title: string; description?: string; priority: TaskPriority; assigneeId: string; dueDate?: string }): Promise<Task> {
-    const all = getStored<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
-    const assignee = SEED_USERS.find((u) => u.id === taskData.assigneeId);
-
-    const newTask: Task = {
-      id: `task-${Date.now()}`,
-      projectId,
-      title: taskData.title,
-      description: taskData.description || '',
-      status: 'To do',
-      priority: taskData.priority,
-      assigneeId: taskData.assigneeId,
-      assigneeName: assignee ? assignee.name : 'Unassigned',
-      dueDate: taskData.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const updated = [newTask, ...all];
-    setStored(STORAGE_KEYS.TASKS, updated);
-    return newTask;
+    const result = await request<Record<string, unknown>>(`/student/projects/${projectId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ title: taskData.title, description: taskData.description, assignedTo: taskData.assigneeId, dueAt: taskData.dueDate }),
+    });
+    return mapTask(result, projectId);
   },
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
-    const all = getStored<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
-    const index = all.findIndex((t) => t.id === id);
-    if (index === -1) throw new Error('Task not found');
-
-    let assigneeName = all[index].assigneeName;
-    if (updates.assigneeId && updates.assigneeId !== all[index].assigneeId) {
-      const u = SEED_USERS.find((user) => user.id === updates.assigneeId);
-      if (u) assigneeName = u.name;
+    if (updates.status === 'Completed') {
+      return mapTask(await request<Record<string, unknown>>(`/student/tasks/${id}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ status: 'COMPLETED' }),
+      }), updates.projectId || '');
     }
-
-    const updatedTask: Task = {
-      ...all[index],
-      ...updates,
-      assigneeName: assigneeName || all[index].assigneeName,
-      updatedAt: new Date().toISOString(),
-    };
-
-    all[index] = updatedTask;
-    setStored(STORAGE_KEYS.TASKS, all);
-    return updatedTask;
+    throw new Error('Only completing tasks is available in the backend API.');
   },
 
-  async deleteTask(id: string): Promise<void> {
-    const all = getStored<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
-    const filtered = all.filter((t) => t.id !== id);
-    setStored(STORAGE_KEYS.TASKS, filtered);
+  async deleteTask(_id: string): Promise<void> {
+    throw new Error('Deleting tasks is not available in the backend API yet.');
   },
 };
 
-// -------------------------------------------------------------
-// ANALYTICS SERVICE
-// -------------------------------------------------------------
 export const analyticsService = {
   async getOverview(): Promise<AnalyticsOverview> {
-    await new Promise((r) => setTimeout(r, 150));
-    const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, SEED_PROJECTS);
-    const applications = getStored<Application[]>(STORAGE_KEYS.APPLICATIONS, SEED_APPLICATIONS);
-    const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
-
-    const activeProjects = projects.filter((p) => p.status === 'OPEN').length;
-    const totalApplicants = applications.length;
-
-    const completedTasks = tasks.filter((t) => t.status === 'Completed').length;
-    const overallCompletionRate = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
-
-    const deptCounts: Record<string, number> = {};
-    projects.forEach((p) => {
-      p.departments.forEach((dept) => {
-        deptCounts[dept] = (deptCounts[dept] || 0) + 1;
-      });
-    });
-
-    const totalDeptOccurrences = Object.values(deptCounts).reduce((a, b) => a + b, 0) || 1;
-    const departmentDistribution = Object.entries(deptCounts).map(([department, count]) => ({
-      department,
-      count,
-      percentage: Math.round((count / totalDeptOccurrences) * 100),
-    }));
-
-    const nearingDeadlineProjects = projects
-      .filter((p) => p.status === 'OPEN' && !isDeadlinePassed(p.deadline))
-      .map((p) => {
-        const diffMs = new Date(p.deadline).getTime() - Date.now();
-        const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-        return {
-          id: p.id,
-          code: p.code,
-          title: p.title,
-          deadline: p.deadline,
-          daysRemaining,
-          departments: p.departments,
-        };
-      })
-      .sort((a, b) => a.daysRemaining - b.daysRemaining);
-
+    const result = await request<{ stats: { openProjects: number; pendingApplications: number } }>('/admin');
     return {
-      activeProjects,
-      totalApplicants,
-      overallCompletionRate,
-      activeDepartments: Object.keys(deptCounts).length,
-      departmentDistribution,
-      nearingDeadlineProjects,
+      activeProjects: result.stats.openProjects,
+      totalApplicants: result.stats.pendingApplications,
+      overallCompletionRate: 0,
+      activeDepartments: 0,
+      departmentDistribution: [],
+      nearingDeadlineProjects: [],
     };
   },
 };
 
 export function resetMockDataToSeed(): void {
-  localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
-  localStorage.setItem(STORAGE_KEYS.MEMBERSHIPS, JSON.stringify(SEED_MEMBERSHIPS));
-  localStorage.setItem(STORAGE_KEYS.APPLICATIONS, JSON.stringify(SEED_APPLICATIONS));
-  localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
+  throw new Error('Mock data reset is unavailable when using the backend API.');
 }

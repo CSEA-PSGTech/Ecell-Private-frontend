@@ -3,17 +3,17 @@ import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Input } from '@/components/common/Input';
 import { Button } from '@/components/common/Button';
-import { SEED_USERS } from '@/utils/seedData';
 
 interface LoginPageProps {
-  onSuccess: (role: 'student' | 'admin') => void;
+  onSuccess: (role: 'student' | 'company' | 'admin') => void;
+  onGoToSignup: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onGoToSignup }) => {
   const { login, sessionExpired, clearSessionExpired } = useAuth();
 
-  const [email, setEmail] = useState('alex@college.edu');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,26 +27,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
     setError('');
     try {
       await login(email, password);
-      const targetUser = SEED_USERS.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-      const role = targetUser?.role || (email.includes('admin') ? 'admin' : 'student');
-      onSuccess(role);
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleQuickSelect = async (userEmail: string) => {
-    setEmail(userEmail);
-    setPassword('demo-pass');
-    setIsLoading(true);
-    setError('');
-    try {
-      await login(userEmail, 'demo-pass');
-      const targetUser = SEED_USERS.find((u) => u.email.toLowerCase() === userEmail.toLowerCase());
-      const role = targetUser?.role || 'student';
-      onSuccess(role);
+      const authenticatedUser = JSON.parse(localStorage.getItem('ecell_auth_user') || 'null') as { role?: 'student' | 'admin' } | null;
+      onSuccess(authenticatedUser?.role || 'student');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -146,9 +128,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
             )}
 
             <Input
-              label="College Email"
+              label="Email address"
               type="email"
-              placeholder="rollnumber@college.edu"
+              placeholder="you@college.edu or company.example"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               leftIcon={<Mail size={15} />}
@@ -177,83 +159,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
             </Button>
           </form>
 
-          {/* Quick Personas */}
-          <div
-            style={{
-              marginTop: '1.5rem',
-              borderTop: '1px solid var(--border-subtle)',
-              paddingTop: '1.25rem',
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.6875rem',
-                fontWeight: 600,
-                color: 'var(--text-muted)',
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-                marginBottom: '0.75rem',
-                textAlign: 'center',
-              }}
-            >
-              Demo Accounts
-            </div>
+          <p style={{ textAlign: 'center', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '1.25rem' }}>
+            New to E-Cell?{' '}
+            <button type="button" onClick={onGoToSignup} style={{ color: 'var(--brand-primary)', fontWeight: 600, cursor: 'pointer' }}>
+              Create a student account
+            </button>
+          </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {SEED_USERS.map((u) => {
-                const roleLabel =
-                  u.id === 'user-alex' ? 'Student — Rep & Member'
-                  : u.id === 'user-sarah' ? 'Student — Owner & Member'
-                  : u.id === 'user-karthik' ? 'Student — Applicant'
-                  : 'Admin';
-
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => handleQuickSelect(u.email)}
-                    disabled={isLoading}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '0.6rem 0.85rem',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--bg-elevated)',
-                      border: '1px solid var(--border-subtle)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'border-color var(--transition-fast)',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--border-strong)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-                  >
-                    <div>
-                      <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                        {u.name}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                        {roleLabel}
-                      </div>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: '0.6875rem',
-                        fontWeight: 600,
-                        padding: '0.2rem 0.55rem',
-                        borderRadius: 'var(--radius-full)',
-                        backgroundColor: u.role === 'admin' ? 'rgba(168,85,247,0.12)' : 'var(--brand-primary-light)',
-                        color: u.role === 'admin' ? '#a855f7' : 'var(--brand-primary)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {u.role === 'admin' ? 'Admin' : 'Student'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
         <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>

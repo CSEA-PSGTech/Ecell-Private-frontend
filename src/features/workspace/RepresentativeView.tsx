@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Users, Filter } from 'lucide-react';
 import type { Task, ProjectMembership, TaskPriority } from '@/types';
 import { KanbanBoard } from '@/features/tasks/KanbanBoard';
 import { TaskModal } from '@/features/tasks/TaskModal';
@@ -29,6 +29,7 @@ export const RepresentativeView: React.FC<RepresentativeViewProps> = ({
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [onlyMyTasks, setOnlyMyTasks] = useState(false);
 
   const handleOpenCreate = () => {
     setEditingTask(null);
@@ -66,6 +67,9 @@ export const RepresentativeView: React.FC<RepresentativeViewProps> = ({
       completionRate: rate,
     };
   });
+  const displayedTasks = onlyMyTasks
+    ? tasks.filter((task) => task.assigneeId === currentUserId)
+    : tasks;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -80,14 +84,43 @@ export const RepresentativeView: React.FC<RepresentativeViewProps> = ({
           </p>
         </div>
 
-        <Button variant="primary" size="sm" onClick={handleOpenCreate} icon={<Plus size={15} />}>
-          New Task
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem' }}>
+            <Filter size={14} color="var(--text-muted)" />
+            <span>My Tasks Only</span>
+            <button
+              type="button"
+              onClick={() => setOnlyMyTasks((value) => !value)}
+              aria-pressed={onlyMyTasks}
+              style={{
+                width: '36px',
+                height: '20px',
+                border: 0,
+                borderRadius: '999px',
+                padding: 0,
+                cursor: 'pointer',
+                backgroundColor: onlyMyTasks ? 'var(--brand-primary)' : 'var(--border-strong)',
+              }}
+            >
+              <span style={{
+                display: 'block',
+                width: '16px',
+                height: '16px',
+                marginLeft: onlyMyTasks ? '18px' : '2px',
+                borderRadius: '50%',
+                backgroundColor: '#fff',
+              }} />
+            </button>
+          </div>
+          <Button variant="primary" size="sm" onClick={handleOpenCreate} icon={<Plus size={15} />}>
+            New Task
+          </Button>
+        </div>
       </div>
 
       {/* Kanban Board */}
       <KanbanBoard
-        tasks={tasks}
+        tasks={displayedTasks}
         currentUserId={currentUserId}
         userRole="REPRESENTATIVE"
         onStatusChange={(taskId, status) => onUpdateTaskStatus(taskId, status)}

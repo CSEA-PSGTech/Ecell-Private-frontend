@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, Search } from 'lucide-react';
 import type { Project, ProjectStatus } from '@/types';
 import { Button } from '@/components/common/Button';
 import { Modal } from '@/components/common/Modal';
@@ -7,10 +7,14 @@ import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { DEPARTMENTS, PROJECT_STATUSES } from '@/utils/constants';
 import { formatDate, getDaysRemaining } from '@/utils/formatters';
+import { projectService } from '@/services/api';
+import type { AdminStudent } from '@/services/api';
 
 interface AdminProjectsViewProps {
   projects: Project[];
-  onCreateProject: (data: Omit<Project, 'id' | 'createdAt'>) => Promise<Project>;
+  onCreateProject: (data: Omit<Project, 'id' | 'createdAt'> & {
+    assignments?: { id: string; email: string; role: 'OWNER' | 'REPRESENTATIVE' }[];
+  }) => Promise<Project>;
   onUpdateStatus: (id: string, status: ProjectStatus) => Promise<Project>;
 }
 
@@ -30,8 +34,32 @@ export const AdminProjectsView: React.FC<AdminProjectsViewProps> = ({
   const [status, setStatus] = useState<ProjectStatus>('OPEN');
   const [deadline, setDeadline] = useState('');
   const [mentorName, setMentorName] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentResults, setStudentResults] = useState<AdminStudent[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<AdminStudent | null>(null);
+  const [studentRole, setStudentRole] = useState<'OWNER' | 'REPRESENTATIVE'>('REPRESENTATIVE');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (studentSearch.trim().length < 3) {
+      setStudentResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await projectService.searchStudents(studentSearch);
+        if (!cancelled) setStudentResults(results);
+      } catch {
+        if (!cancelled) setStudentResults([]);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [studentSearch]);
 
   const filteredProjects = projects.filter((p) => {
     if (filterStatus === 'ALL') return true;
@@ -70,6 +98,9 @@ export const AdminProjectsView: React.FC<AdminProjectsViewProps> = ({
         mentorRole: 'Innovation Lab',
         prerequisites: ['Foundations in domain tools', 'Team collaboration spirit'],
         guidelines: ['Commit milestones weekly', 'Submit reports for cycle review'],
+        assignments: selectedStudent
+          ? [{ id: selectedStudent.id, email: selectedStudent.email, role: studentRole }]
+          : [],
       });
       setIsModalOpen(false);
       setTitle('');
@@ -77,6 +108,10 @@ export const AdminProjectsView: React.FC<AdminProjectsViewProps> = ({
       setDescription('');
       setDeadline('');
       setMentorName('');
+      setStudentSearch('');
+      setStudentResults([]);
+      setSelectedStudent(null);
+      setStudentRole('REPRESENTATIVE');
     } catch (err: any) {
       setError(err.message || 'Failed to create project');
     } finally {
@@ -353,6 +388,73 @@ export const AdminProjectsView: React.FC<AdminProjectsViewProps> = ({
             value={mentorName}
             onChange={(e) => setMentorName(e.target.value)}
           />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+              Assign Student Role
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Input
+                placeholder="Search by student or company email"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                leftIcon={<Search size={15} />}
+              />
+              {studentResults.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  zIndex: 5,
+                  backgroundColor: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  boxShadow: 'var(--shadow-md)',
+                }}>
+                  {studentResults.map((student) => (
+                    <button
+                      key={student.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedStudent(student);
+                        setStudentSearch(student.email);
+                        setStudentResults([]);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.55rem 0.7rem',
+                        textAlign: 'left',
+                        color: 'var(--text-main)',
+                        cursor: 'pointer',
+                        background: 'transparent',
+                      }}
+                    >
+                      <strong>{student.name}</strong>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {student.email} · {student.department || 'Department unavailable'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedStudent && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {selectedStudent.name} ({selectedStudent.department || 'No department'})
+                </span>
+                <Select
+                  value={studentRole}
+                  onChange={(e) => setStudentRole(e.target.value as 'OWNER' | 'REPRESENTATIVE')}
+                  options={[
+                    { label: 'Representative', value: 'REPRESENTATIVE' },
+                    { label: 'Owner', value: 'OWNER' },
+                  ]}
+                />
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
             <Button type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)}>

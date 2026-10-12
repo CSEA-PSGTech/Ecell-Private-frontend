@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserCheck, Shield, Kanban, CheckCircle2, Search, ArrowRight } from 'lucide-react';
 import type { Project, ProjectMembership, ProjectRole } from '@/types';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Select } from '@/components/common/Select';
 import { Avatar } from '@/components/common/Avatar';
-import { SEED_USERS } from '@/utils/seedData';
+import { projectService } from '@/services/api';
+import type { AdminStudent } from '@/services/api';
 
 interface AdminRolesViewProps {
   projects: Project[];
@@ -20,10 +21,11 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
 }) => {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(projects[0]?.id || '');
   const [targetStudentSearch, setTargetStudentSearch] = useState('');
-  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<AdminStudent | null>(null);
   const [roleToGrant, setRoleToGrant] = useState<'REPRESENTATIVE' | 'OWNER'>('REPRESENTATIVE');
   const [isGranting, setIsGranting] = useState(false);
   const [grantSuccess, setGrantSuccess] = useState<string | null>(null);
+  const [grantError, setGrantError] = useState<string | null>(null);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
   const projectMembers = memberships.filter((m) => m.projectId === selectedProjectId);
@@ -31,30 +33,56 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
   const currentRep = projectMembers.find((m) => m.role === 'REPRESENTATIVE');
   const currentOwner = projectMembers.find((m) => m.role === 'OWNER');
 
-  // Search filter for students
-  const filteredStudents = SEED_USERS.filter((u) => {
-    if (u.role === 'admin') return false;
-    const term = targetStudentSearch.trim().toLowerCase();
-    if (!term) return true;
-    return (
-      u.name.toLowerCase().includes(term) ||
-      u.email.toLowerCase().includes(term) ||
-      (u.rollNumber && u.rollNumber.toLowerCase().includes(term))
-    );
-  });
+  const [studentResults, setStudentResults] = useState<AdminStudent[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setSelectedProjectId('');
+    } else if (!projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    const query = targetStudentSearch.trim();
+    if (query.length < 2) {
+      setStudentResults([]);
+      return;
+    }
+    let cancelled = false;
+    setIsSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await projectService.searchStudents(query);
+        if (!cancelled) setStudentResults(results);
+      } catch {
+        if (!cancelled) setStudentResults([]);
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [targetStudentSearch]);
 
   const handleGrantRole = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProjectId || !selectedStudentId) return;
+    if (!selectedProjectId || !selectedStudent) return;
 
     setIsGranting(true);
+    setGrantError(null);
     try {
-      await onUpdateRole(selectedProjectId, selectedStudentId, roleToGrant);
-      const student = SEED_USERS.find((u) => u.id === selectedStudentId);
-      setGrantSuccess(`Granted ${roleToGrant} role to ${student?.name || 'student'}.`);
-      setSelectedStudentId('');
+      await onUpdateRole(selectedProjectId, selectedStudent.id, roleToGrant);
+      setGrantSuccess(`Granted ${roleToGrant} role to ${selectedStudent.name}.`);
+      setSelectedStudent(null);
       setTargetStudentSearch('');
-      setTimeout(() => setGrantSuccess(null), 4000);
+      setStudentResults([]);
+      window.setTimeout(() => setGrantSuccess(null), 4000);
+    } catch (error) {
+      setGrantError(error instanceof Error ? error.message : 'Unable to allocate this role.');
     } finally {
       setIsGranting(false);
     }
@@ -192,14 +220,14 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
       {/* Grant / Change Leadership Form */}
       <Card
         title="Assign or Reallocate Leadership"
-        subtitle="Lookup a student by email or roll number to designate them as Owner or Representative"
+        subtitle="Lookup a student or company account by email, name, or roll number to designate them as Owner or Representative"
       >
         <form onSubmit={handleGrantRole} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.75rem' }}>
             {/* Student Search & Select */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
               <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                Search Student (Email or Roll No)
+                Search Candidate (Email, Name, or Roll No)
               </label>
               <div style={{ position: 'relative' }}>
                 <Search
@@ -214,9 +242,12 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
                 />
                 <input
                   type="text"
-                  placeholder="Filter student list..."
+                  placeholder="Search students and company accounts..."
                   value={targetStudentSearch}
-                  onChange={(e) => setTargetStudentSearch(e.target.value)}
+                  onChange={(e) => {
+                    setTargetStudentSearch(e.target.value);
+                    setSelectedStudent(null);
+                  }}
                   style={{
                     width: '100%',
                     backgroundColor: 'var(--bg-input)',
@@ -229,31 +260,51 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
                     marginBottom: '0.35rem',
                   }}
                 />
+                {studentResults.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 5,
+                    backgroundColor: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    boxShadow: 'var(--shadow-md)',
+                  }}>
+                    {studentResults.map((student) => (
+                      <button
+                        key={student.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStudent(student);
+                          setTargetStudentSearch(student.rollNumber || student.email);
+                          setStudentResults([]);
+                        }}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          padding: '0.55rem 0.7rem',
+                          textAlign: 'left',
+                          color: 'var(--text-main)',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <strong>{student.name}</strong>
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          {student.accountType === 'company' ? 'Company account' : (student.rollNumber || 'No roll number')} · {student.email} · {student.department || 'No department'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              <select
-                value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-                style={{
-                  width: '100%',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '0.45rem 0.75rem',
-                  fontSize: '0.8125rem',
-                  color: 'var(--text-main)',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-                required
-              >
-                <option value="">-- Choose Candidate --</option>
-                {filteredStudents.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.rollNumber || s.email}) • Dept: {s.department}
-                  </option>
-                ))}
-              </select>
+              <div style={{ minHeight: '1.1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {isSearching ? 'Searching database...' : selectedStudent
+                  ? `Selected: ${selectedStudent.name} (${selectedStudent.rollNumber || selectedStudent.email})`
+                  : targetStudentSearch.length >= 2 ? 'Choose a matching candidate.' : 'Enter at least 2 characters.'}
+              </div>
             </div>
 
             {/* Leadership Role */}
@@ -268,12 +319,15 @@ export const AdminRolesView: React.FC<AdminRolesViewProps> = ({
             />
           </div>
 
+          {grantError && (
+            <div style={{ color: 'var(--status-danger)', fontSize: '0.8125rem' }}>{grantError}</div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
             <Button
               type="submit"
               variant="primary"
               size="sm"
-              disabled={!selectedStudentId || isGranting}
+              disabled={!selectedStudent || isGranting}
               isLoading={isGranting}
               icon={<ArrowRight size={14} />}
             >

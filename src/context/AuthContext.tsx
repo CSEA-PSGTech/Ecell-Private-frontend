@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User } from '@/types';
 import { STORAGE_KEYS } from '@/utils/constants';
-import { SEED_USERS } from '@/utils/seedData';
 import { authService } from '@/services/api';
 
 interface AuthContextType {
@@ -10,6 +9,7 @@ interface AuthContextType {
   isLoading: boolean;
   sessionExpired: boolean;
   login: (email: string, password?: string) => Promise<void>;
+  signup: (name: string, email: string, password: string, department?: string, accountType?: 'student' | 'company') => Promise<void>;
   logout: () => Promise<void>;
   switchPersona: (userId: string) => void;
   clearSessionExpired: () => void;
@@ -25,8 +25,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // ignore
     }
-    // Default logged in user for instant preview: Alex Mercer (student)
-    return SEED_USERS[0];
+    return null;
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -58,12 +57,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const switchPersona = (userId: string) => {
-    const target = SEED_USERS.find((u) => u.id === userId);
-    if (target) {
-      setUser(target);
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, `mock-token-${target.id}`);
+  const signup = async (name: string, email: string, password: string, department?: string, accountType: 'student' | 'company' = 'student') => {
+    setIsLoading(true);
+    setSessionExpired(false);
+    try {
+      const res = await authService.signup(name, email, password, department, accountType);
+      setUser(res.user);
+      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, res.accessToken);
+      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, res.refreshToken);
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const switchPersona = (userId: string) => {
+    console.warn(`Persona switching is unavailable with the backend API (${userId}).`);
   };
 
   const clearSessionExpired = () => {
@@ -78,6 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         sessionExpired,
         login,
+        signup,
         logout,
         switchPersona,
         clearSessionExpired,

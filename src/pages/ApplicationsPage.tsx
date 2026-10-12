@@ -23,7 +23,6 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
 
   const [activeModalApp, setActiveModalApp] = useState<Application | null>(null);
 
-  // Student's own applications
   const myApps = applications.filter((a) => a.studentId === user?.id);
   const underReviewCount = myApps.filter((a) => a.status === 'Under Review').length;
   const acceptedCount = myApps.filter((a) => a.status === 'Accepted').length;

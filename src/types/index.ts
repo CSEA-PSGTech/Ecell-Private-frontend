@@ -1,6 +1,6 @@
 export type ThemeMode = 'dark' | 'light';
 
-export type PlatformRole = 'student' | 'admin';
+export type PlatformRole = 'student' | 'company' | 'admin';
 export type ProjectRole = 'OWNER' | 'REPRESENTATIVE' | 'MEMBER';
 
 export interface User {
@@ -25,6 +25,7 @@ export interface Project {
   status: ProjectStatus;
   deadline: string; // ISO date string
   mentorName: string;
+  facultyName?: string;
   mentorRole?: string;
   prerequisites?: string[];
   guidelines?: string[];
