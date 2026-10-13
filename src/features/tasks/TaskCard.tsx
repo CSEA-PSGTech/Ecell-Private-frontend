@@ -212,6 +212,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </span>
       </div>
 
+      {canToggleStatus && task.status !== 'Completed' && (
+        <button
+          type="button"
+          onClick={() => onStatusChange(task.id, task.status === 'To do' ? 'In progress' : 'Completed')}
+          style={{
+            alignSelf: 'flex-start',
+            marginLeft: '1.5rem',
+            padding: '0.3rem 0.55rem',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-xs)',
+            backgroundColor: 'var(--bg-elevated)',
+            color: task.status === 'To do' ? 'var(--status-warning)' : 'var(--status-success)',
+            fontSize: '0.7rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          {task.status === 'To do' ? 'Start in progress' : 'Mark completed'}
+        </button>
+      )}
+
       {task.description && (
         <p
           style={{

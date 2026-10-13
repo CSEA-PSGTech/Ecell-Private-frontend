@@ -158,12 +158,14 @@ export const ProjectDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const updateTaskDetails = async (taskId: string, updates: Partial<Task>): Promise<Task> => {
     const updated = await taskService.updateTask(taskId, updates);
+    setTasks((currentTasks) => currentTasks.map((task) => task.id === taskId ? updated : task));
     await refreshData();
     return updated;
   };
 
   const deleteTask = async (taskId: string): Promise<void> => {
     await taskService.deleteTask(taskId);
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId));
     await refreshData();
   };
 

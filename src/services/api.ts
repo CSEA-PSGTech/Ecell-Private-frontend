@@ -363,37 +363,51 @@ export const taskService = {
   async createTask(projectId: string, taskData: { title: string; description?: string; priority: TaskPriority; assigneeId: string; dueDate?: string }): Promise<Task> {
     const result = await request<Record<string, unknown>>(`/student/projects/${projectId}/tasks`, {
       method: 'POST',
-      body: JSON.stringify({ title: taskData.title, description: taskData.description, assignedTo: taskData.assigneeId, dueAt: taskData.dueDate }),
+      body: JSON.stringify({
+        title: taskData.title,
+        description: taskData.description,
+        assignedTo: taskData.assigneeId,
+        dueAt: taskData.dueDate ? `${taskData.dueDate}T00:00:00.000Z` : undefined,
+        priority: taskData.priority,
+      }),
     });
     return mapTask(result, projectId);
   },
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
-    if (updates.status === 'Completed') {
-      return mapTask(await request<Record<string, unknown>>(`/student/tasks/${id}/complete`, {
+    if (updates.status) {
+      const backendStatus = updates.status === 'In progress' ? 'IN_PROGRESS' : 'COMPLETED';
+      return mapTask(await request<Record<string, unknown>>(`/student/tasks/${id}/status`, {
         method: 'POST',
-        body: JSON.stringify({ status: 'COMPLETED' }),
+        body: JSON.stringify({ status: backendStatus }),
       }), updates.projectId || '');
     }
-    throw new Error('Only completing tasks is available in the backend API.');
+    const dueAt = updates.dueDate
+      ? (updates.dueDate.length === 10 ? `${updates.dueDate}T00:00:00.000Z` : updates.dueDate)
+      : undefined;
+    const result = await request<Record<string, unknown>>(`/student/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        title: updates.title,
+        description: updates.description,
+        assignedTo: updates.assigneeId,
+        dueAt,
+        priority: updates.priority,
+      }),
+    });
+    return mapTask(result, updates.projectId || String(result.projectId || ''));
   },
 
-  async deleteTask(_id: string): Promise<void> {
-    throw new Error('Deleting tasks is not available in the backend API yet.');
+  async deleteTask(id: string): Promise<void> {
+    await request<{ id: string; deleted: boolean }>(`/student/tasks/${id}`, {
+      method: 'DELETE',
+    });
   },
 };
 
 export const analyticsService = {
   async getOverview(): Promise<AnalyticsOverview> {
-    const result = await request<{ stats: { openProjects: number; pendingApplications: number } }>('/admin');
-    return {
-      activeProjects: result.stats.openProjects,
-      totalApplicants: result.stats.pendingApplications,
-      overallCompletionRate: 0,
-      activeDepartments: 0,
-      departmentDistribution: [],
-      nearingDeadlineProjects: [],
-    };
+    return request<AnalyticsOverview>('/admin/analytics');
   },
 };
 

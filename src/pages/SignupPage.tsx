@@ -132,7 +132,15 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onSuccess, onGoToLogin }
             </div>
 
             <Input label="Full Name" type="text" placeholder="Your name" value={name} onChange={(event) => setName(event.target.value)} leftIcon={<UserRound size={15} />} required />
-            <Input label="College Email" type="email" placeholder="you@college.edu" value={email} onChange={(event) => setEmail(event.target.value)} leftIcon={<Mail size={15} />} required />
+            <Input
+              label={accountType === 'company' ? 'Email address' : 'College Email'}
+              type="email"
+              placeholder={accountType === 'company' ? 'company@example.com' : 'you@college.edu'}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              leftIcon={<Mail size={15} />}
+              required
+            />
             {accountType === 'student' && (
               <Input label="Department" type="text" placeholder="e.g. CSE" value={department} onChange={(event) => setDepartment(event.target.value)} leftIcon={<Building2 size={15} />} required />
             )}

@@ -45,10 +45,14 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({
   useEffect(() => {
     if (initialProjectId && myProjects.some((m) => m.project.id === initialProjectId)) {
       setSelectedProjectId(initialProjectId);
-    } else if (!selectedProjectId && myProjects.length > 0) {
+    }
+  }, [initialProjectId]);
+
+  useEffect(() => {
+    if (myProjects.length > 0 && !myProjects.some((m) => m.project.id === selectedProjectId)) {
       setSelectedProjectId(myProjects[0].project.id);
     }
-  }, [initialProjectId, myProjects, selectedProjectId]);
+  }, [myProjects.length, selectedProjectId]);
 
   if (myProjects.length === 0) {
     return (

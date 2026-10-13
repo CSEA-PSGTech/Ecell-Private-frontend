@@ -125,7 +125,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onOpenSearch }) => {
                 {user?.name}
               </span>
               <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                {user?.role === 'admin' ? 'Board Admin' : user?.department}
+                {user?.role === 'admin' ? 'Board Admin' : user?.role === 'company' ? 'Company Account' : user?.department}
               </span>
             </div>
             <ChevronDown size={14} color="var(--text-muted)" />
@@ -154,8 +154,12 @@ export const TopBar: React.FC<TopBarProps> = ({ onOpenSearch }) => {
                 <div style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{user?.name}</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{user?.email}</div>
                 <div style={{ marginTop: '0.35rem' }}>
-                  <Badge size="sm" variant={user?.role === 'admin' ? 'purple' : 'info'}>
-                    {user?.role === 'admin' ? 'Administrator' : `Student • ${user?.rollNumber || ''}`}
+                  <Badge size="sm" variant={user?.role === 'admin' ? 'purple' : user?.role === 'company' ? 'purple' : 'info'}>
+                    {user?.role === 'admin'
+                      ? 'Administrator'
+                      : user?.role === 'company'
+                        ? 'Company'
+                        : `Student • ${user?.rollNumber || ''}`}
                   </Badge>
                 </div>
               </div>

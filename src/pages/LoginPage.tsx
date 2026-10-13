@@ -130,7 +130,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onGoToSignup })
             <Input
               label="Email address"
               type="email"
-              placeholder="you@college.edu or company.example"
+              placeholder="Enter your email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               leftIcon={<Mail size={15} />}
@@ -162,7 +162,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onGoToSignup })
           <p style={{ textAlign: 'center', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '1.25rem' }}>
             New to E-Cell?{' '}
             <button type="button" onClick={onGoToSignup} style={{ color: 'var(--brand-primary)', fontWeight: 600, cursor: 'pointer' }}>
-              Create a student account
+              Sign up here
             </button>
           </p>
 
